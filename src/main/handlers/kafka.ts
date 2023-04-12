@@ -16,7 +16,7 @@ export const KafkaHandlers = {
     channel: "kafka:sendMessage",
     handle: async (_event: IpcMainInvokeEvent, messagePayload: MessagePayload) => {
 
-      console.log(`Received: ${JSON.stringify(messagePayload)}`)
+      console.log(`Received: ${messagePayload}`)
 
       const kafka = new Kafka({
         brokers: messagePayload.brokersUrl.split(','),
@@ -41,12 +41,25 @@ export const KafkaHandlers = {
         console.error(e)
         producer && await producer.disconnect()
       })
+    }
+  },
+  listTopics: {
+    channel: "kafka:listTopics",
+    handle: async (_event: IpcMainInvokeEvent, brokersUrl: string) => {
+      const admin = new Kafka({
+        brokers: brokersUrl.split(','),
+        clientId: 'kui-consumer',
+      }).admin()
 
+      const run = async () => {
+        await admin.connect()
+        return await admin.listTopics()
+      }
 
-
-
-
-
+      return run().catch(async e => {
+        console.error(e)
+        admin && admin.disconnect()
+      })
     }
   }
 }

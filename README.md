@@ -1,10 +1,9 @@
 # kui
 
-An Electron application with Vue and TypeScript
+Send Avro-validated messages to Kafka topics with ease.
 
-## Recommended IDE Setup
-
-- [VSCode](https://code.visualstudio.com/) + [ESLint](https://marketplace.visualstudio.com/items?itemName=dbaeumer.vscode-eslint) + [Prettier](https://marketplace.visualstudio.com/items?itemName=esbenp.prettier-vscode)
+![Image 2](images/image-2.png "Image 2")
+![Image 1](images/image-1.png "Image 1")
 
 ## Project Setup
 

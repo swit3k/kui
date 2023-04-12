@@ -23,9 +23,12 @@
     "@electron-toolkit/preload": "^1.0.3",
     "@electron-toolkit/utils": "^1.0.2",
     "@kafkajs/confluent-schema-registry": "^3.3.0",
+    "avsc": "^5.7.7",
     "bootstrap": "^5.3.0-alpha2",
     "electron-updater": "^5.3.0",
-    "kafkajs": "^2.2.4"
+    "json-editor-vue": "^0.10.5",
+    "kafkajs": "^2.2.4",
+    "vue-json-pretty": "^2.2.4"
   },
   "devDependencies": {
     "@electron-forge/cli": "^6.1.0",

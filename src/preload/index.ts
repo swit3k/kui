@@ -12,8 +12,11 @@ interface MessagePayload {
 // Custom APIs for renderer
 const api = {
   fetchSchemaRegistry: (url: string) => electronAPI.ipcRenderer.invoke("schemaRegistry:fetchSubjects", url),
+  fetchSchema: (url: string, schemaId: number) => electronAPI.ipcRenderer.invoke("schemaRegistry:fetchSchema", url, schemaId),
   fetchLatestSchemaId: (url: string, subject: string) => electronAPI.ipcRenderer.invoke("schemaRegistry:fetchLatestSchemaId", url, subject),
-  sendMessage: (messagePayload: MessagePayload) => electronAPI.ipcRenderer.invoke("kafka:sendMessage", messagePayload)
+  validateMessage: (url: string, schemaId: number, message: string) => electronAPI.ipcRenderer.invoke("schemaRegistry:validateMessage", url, schemaId, message),
+  sendMessage: (messagePayload: MessagePayload) => electronAPI.ipcRenderer.invoke("kafka:sendMessage", messagePayload),
+  listTopics: (url: string) => electronAPI.ipcRenderer.invoke("kafka:listTopics", url)
 }
 
 // Use `contextBridge` APIs to expose Electron APIs to
