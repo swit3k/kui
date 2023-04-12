@@ -263,9 +263,8 @@ const onValidate = async () => {
             <button type="submit" class="btn btn-primary w-100" @click="onValidate">Validate</button>
           </div>
           <div class="col">
-            <!-- <button type="submit" class="btn btn-success w-100" @click="onSend"
-              :disabled="state.payloadStatus != PayloadStatus.VALID">Send</button> -->
-            <button type="submit" class="btn btn-success w-100" @click="onSend">Send</button>
+            <button type="submit" class="btn btn-success w-100" @click="onSend"
+              :disabled="state.payloadStatus != PayloadStatus.VALID">Send</button>
           </div>
         </div>
         <div class="row">
