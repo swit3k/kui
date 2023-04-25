@@ -6,7 +6,7 @@ const store = useKuiStore()
 const types = [
   { label: "From beginning", value: ConsumerType.FROM_BEGINNING },
   { label: "From end (forward)", value: ConsumerType.FROM_END_FORWARD },
-  { label: "From end (backward)", value: ConsumerType.FROM_END_BACKWARD },
+  { label: "From end (backward) - TO BE IMPLEMENTED", value: ConsumerType.FROM_END_FORWARD },
 
 ]
 const limits: Array<ConsumerLimit> = [1, 5, 10]
