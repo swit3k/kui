@@ -4,10 +4,10 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { registerHandlers } from './handlers/handler'
 
-function createWindow(): void {
+function createWindow(): BrowserWindow {
   // Create the browser window.
   const mainWindow = new BrowserWindow({
-    width: 900,
+    width: 1200,
     height: 900,
     show: false,
     autoHideMenuBar: true,
@@ -34,6 +34,7 @@ function createWindow(): void {
   } else {
     mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
   }
+  return mainWindow
 }
 
 // This method will be called when Electron has finished
@@ -50,8 +51,8 @@ app.whenReady().then(() => {
     optimizer.watchWindowShortcuts(window)
   })
 
-  createWindow()
-  registerHandlers()
+  const mainWindow = createWindow()
+  registerHandlers(mainWindow)
 
   app.on('activate', function () {
     // On macOS it's common to re-create a window in the app when the

@@ -1,302 +1,237 @@
 <script setup lang="ts">
-import { ref, reactive, watch } from 'vue'
-import JsonEditorVue from 'json-editor-vue'
-import * as bootstrap from 'bootstrap'
+import { nextTick, ref, watch } from 'vue'
 
-enum PayloadStatus {
-  UNKNOWN, VALID, INVALID
-}
+import { useKuiStore } from './store/kui';
 
-const schemaRegistryUrlEl = ref<HTMLInputElement | null>(null)
-const subjectsEl = ref<HTMLSelectElement | null>(null)
-const brokersUrlEl = ref<HTMLInputElement | null>(null)
+import BrokerConfiguration from './components/BrokerConfiguration.vue';
+import SchemaRegistryConfiguration from './components/SchemaRegistryConfiguration.vue';
+import Topic from './components/Topic.vue';
+import Consumer from './components/Consumer.vue';
 
-const topicsEl = ref<HTMLSelectElement | null>(null) // select
-const topicEl = ref<HTMLInputElement | null>(null) // input
+import Message from './components/message/Message.vue';
+import Feed from './components/message/Feed.vue';
+import { MessageStatus } from './components/message';
 
-const subjectOptions: any[] = reactive([])
-const topicOptions: any[] = reactive([])
+import Modal from './components/modal/Modal.vue'
+import { showModal, Modals } from './components/modal'
+import Json from './components/editor/Json.vue';
 
-const state: any = reactive({
-  payloadStatus: PayloadStatus.UNKNOWN,
-  payload: {},
-  topicType: null,
-  schema: null,
-  modal: {
-    title: null,
-    content: null
-  }
+const store = useKuiStore()
+
+const showSchemaModal = ref(false)
+const showSpinner = ref(false)
+const stopDisabled = ref(true)
+const consumeDisabled = ref(false)
+
+watch(() => store.state.message.content, (content, prevContent) => {
+  if (content != prevContent) store.state.message.status = MessageStatus.UNKNOWN
 })
-
-watch(() => state.payload, (payload, prevPayload) => {
-  if (payload != prevPayload) state.payloadStatus = PayloadStatus.UNKNOWN
-})
-
-const openModal = (config: {title?: string, content?: string, id: string}) => {
-  const modal = new bootstrap.Modal(config.id)
-    state.modal.title = config.title
-    state.modal.content = config.content
-    modal.show()
-}
-
-const onSyncSubjects = async () => {
-  subjectOptions.splice(0)
-  const response = await window.api.fetchSchemaRegistry(schemaRegistryUrlEl.value?.value as string);
-  subjectsEl.value?.removeAttribute('disabled');
-
-  (JSON.parse(response) as Array<string>)
-    .forEach((item: string) => {
-      subjectOptions.push({ label: item, value: item })
-    })
-}
-
-const onSyncTopics = async () => {
-  topicOptions.splice(0)
-  const brokersUrl = brokersUrlEl.value?.value as string
-  const response = await window.api.listTopics(brokersUrl);
-
-  topicsEl.value?.removeAttribute('disabled');
-
-  (response as Array<string>)
-    .forEach((item: string) => {
-      topicOptions.push({ label: item, value: item })
-    })
-}
-
-const onShowSchema = async () => {
-  const subject = subjectsEl.value?.value as string
-  if (!subject) {
-    openModal({
-      title: "Sync & choose Subject",
-      content: "Before fetching the schema you must first run 'Sync' on Schema Registry",
-      id: "#modal-1"
-    })
-    return
-  }
-  const schemaRegistryUrl = schemaRegistryUrlEl.value?.value as string
-  const schemaId = await window.api.fetchLatestSchemaId(schemaRegistryUrl, subject);
-  const response = await window.api.fetchSchema(schemaRegistryUrlEl.value?.value as string, schemaId);
-
-  state.schema = JSON.parse(JSON.parse(response).schema)
-  openModal({
-    id: "#modal-schema"
-  })
-}
 
 const onSend = async () => {
-  const schemaRegistryUrl = schemaRegistryUrlEl.value?.value as string
-  const brokersUrl = brokersUrlEl.value?.value as string
-  const subject = subjectsEl.value?.value as string
-  const topic = (state.topicType == 'manual' ? topicEl : topicsEl).value?.value as string
-  const schemaId = await window.api.fetchLatestSchemaId(schemaRegistryUrl, subject);
+  const schemaRegistryUrl = store.config.schemaRegistry.url
+  const topic = store.state.topic
+  const schemaId = await window.api.fetchLatestSchemaId(schemaRegistryUrl, store.state.subject!);
 
   if (!topic) {
-    openModal({
-      title: "Error",
-      content: "Topic cannot be empty",
-      id: "#modal-1"
-    })
+    showModal(Modals.error.TOPIC_IS_EMPTY)
     return
   }
 
   try {
     await window.api.sendMessage({
-      schemaId, schemaRegistryUrl, brokersUrl, message: JSON.stringify(state.payload), topic
+      schemaId, schemaRegistryUrl, topic,
+      brokersUrl: store.config.broker.hosts,
+      message: JSON.stringify(store.state.message.content)
     })
-    openModal({
-      title: "Success",
-      content: `Message was successfully sent to topic ${topic}`,
-      id: "#modal-1"
-    })
-  } catch(e: any) {
-    openModal({
-      title: "Error",
-      content: `Error occurred while sending message: ${e.message}`,
-      id: "#modal-1"
-    })
+    showModal(Modals.info.MESSAGE_SENT(topic))
+  } catch (e: any) {
+    showModal(Modals.error.UNABLE_TO_SEND_MESSAGE(e))
   }
 }
 
 const onValidate = async () => {
-  const subject = subjectsEl.value?.value as string
-  if (!subject) {
-    openModal({
-      title: "Sync & choose Subject",
-      content: "Before validating the message you must first run 'Sync' on Schema Registry",
-      id: "#modal-1"
-    })
-
+  if (!store.state.subject) {
+    showModal(Modals.error.SUBJECT_IS_EMPTY)
     return
   }
 
-  const schemaRegistryUrl = schemaRegistryUrlEl.value?.value as string
-  const schemaId = await window.api.fetchLatestSchemaId(schemaRegistryUrl, subject)
-  const isValid = await window.api.validateMessage(schemaRegistryUrl, schemaId, JSON.stringify(state.payload))
+  const schemaId = await window.api.fetchLatestSchemaId(store.config.schemaRegistry.url, store.state.subject)
+  const isValid = await window.api.validateMessage(store.config.schemaRegistry.url, schemaId, JSON.stringify(store.state.message.content))
 
-  state.payloadStatus = isValid ? PayloadStatus.VALID : PayloadStatus.INVALID
+  store.setMessageStatus(isValid ? MessageStatus.VALID : MessageStatus.INVALID)
 }
+
+const onConsume = async () => {
+  const topic = store.state.topic
+  if (!topic) {
+    showModal(Modals.error.TOPIC_IS_EMPTY)
+    return
+  }
+
+  showSpinner.value = true
+  try {
+    const payload = {
+      brokersUrl: store.config.broker.hosts,
+      schemaRegistryUrl: store.config.schemaRegistry.url,
+      topic: store.state.topic!!,
+      limit: store.config.consumer.limit,
+      type: store.config.consumer.type.toString()
+    };
+
+    console.debug(`Sending consume request ${payload}`)
+    await window.api.sendConsumeMessageRequest(payload)
+    stopDisabled.value = false
+    consumeDisabled.value = true
+  } catch (e: any) {
+    showModal(Modals.error.UNABLE_TO_CONSUME_MESSAGE(e))
+  }
+}
+
+const onStop = async () => {
+  await window.api.sendStopConsumingRequest({ topic: store.state.topic!! })
+}
+
+window.api.onIncomingMessage(async (_event: any, payload: any) => {
+  console.debug('Received incoming message', payload)
+  store.state.feed!!.push(payload)
+})
+
+window.api.onLastMessageMarker(async (_event: any, payload: any) => {
+  console.debug(`Last message recieved, ${payload.topic}`)
+  await nextTick(() => {
+    showSpinner.value = false
+    stopDisabled.value = true
+    consumeDisabled.value = false
+  })
+})
 
 </script>
 
 <template>
   <div class="container-fluid h-100 mt-3">
-    <div class="row h-100">
+    <div class="row h-100 scroll">
       <div class="col d-flex flex-column">
-        <div class="card not-grow">
-          <div class="card-header">
-            Brokers Configuration
-          </div>
-          <div class="card-body">
-            <div class="row">
-              <div class="form-floating">
-                <input type="email" class="form-control" placeholder="localhost:9092" id="brokers-url" ref="brokersUrlEl"
-                  value="localhost:19092">
-                <label for="brokers-url" class="ms-2">Broker URL(s)</label>
+        <div class="accordion not-grow" id="configurations">
+          <div class="accordion-item">
+            <h2 class="accordion-header">
+              <button class="accordion-button secondary" type="button" data-bs-toggle="collapse"
+                data-bs-target="#broker-configuration" aria-expanded="true" aria-controls="collapseOne">
+                Broker Configuration
+              </button>
+            </h2>
+            <div id="broker-configuration" class="accordion-collapse collapse show">
+              <div class="accordion-body">
+                <BrokerConfiguration class="not-grow" />
               </div>
             </div>
           </div>
         </div>
-        <div class="card mt-2 not-grow">
-          <div class="card-header">
-            Schema Registry Configuration
-          </div>
-          <div class="card-body d-flex flex-column">
-            <div class="row">
-              <div class="col">
-                <div class="row mb-2">
-                  <div class="col-10">
-                    <div class="form-floating">
-                      <input type="email" class="form-control" placeholder="http://localhost:8081"
-                        id="schema-registry-url" ref="schemaRegistryUrlEl" value="http://localhost:8081">
-                      <label for="schema-registry-url" class="ms-2">URL</label>
+        <ul class="nav nav-tabs mt-3 not-grow" id="tabs" role="tablist">
+          <li class="nav-item" role="producer">
+            <button class="nav-link active" id="producer-tab" data-bs-toggle="tab" data-bs-target="#producer-tab-pane"
+              type="button" role="tab" aria-controls="producer-tab-pane" aria-selected="true">Producer</button>
+          </li>
+          <li class="nav-item" role="consumer">
+            <button class="nav-link" id="consumer-tab" data-bs-toggle="tab" data-bs-target="#consumer-tab-pane"
+              type="button" role="tab" aria-controls="consumer-tab-pane" aria-selected="false">Consumer</button>
+          </li>
+        </ul>
+        <div class="tab-content grow" id="myTabContent">
+          <div class="tab-pane fade show active h-100" id="producer-tab-pane" role="tabpanel"
+            aria-labelledby="producer-tab" tabindex="0">
+            <div class="d-flex flex-column h-100">
+              <div class="accordion not-grow mt-2" id="producer-configurations">
+                <div class="accordion-item">
+                  <h2 class="accordion-header">
+                    <button class="accordion-button" type="button" data-bs-toggle="collapse"
+                      data-bs-target="#schema-registry-configuration">
+                      Schema Registry Configuration
+                    </button>
+                  </h2>
+                  <div id="schema-registry-configuration" class="accordion-collapse collapse">
+                    <div class="accordion-body">
+                      <SchemaRegistryConfiguration class="not-grow" @schema-loaded="showSchemaModal = true" />
                     </div>
                   </div>
-                  <div class="col-2">
-                    <button type="submit" class="btn btn-primary w-100 h-100" @click="onSyncSubjects">Sync</button>
-                  </div>
                 </div>
-
-                <div class="row">
-                  <div class="col-10">
-                    <div class="form-floating">
-                      <select class="form-select" id="subjects" aria-label="Subjects" ref="subjectsEl" disabled placeholder="Subject 1">
-                        <option v-for="option in subjectOptions" :value="option.value">{{ option.label }}</option>
-                      </select>
-                      <label for="subjects" class="ms-2">Subject</label>
+                <div class="accordion-item">
+                  <h2 class="accordion-header">
+                    <button class="accordion-button" type="button" data-bs-toggle="collapse"
+                      data-bs-target="#producer-topic-configuration">
+                      Topic Configuration
+                    </button>
+                  </h2>
+                  <div id="producer-topic-configuration" class="accordion-collapse collapse">
+                    <div class="accordion-body">
+                      <Topic class="not-grow" :allow-manual="true" />
                     </div>
                   </div>
-                  <div class="col-2">
-                    <button type="submit" class="btn btn-primary w-100 h-100" @click="onShowSchema">Show schema</button>
+                </div>
+              </div>
+              <Message header="Message" class="grow" />
+              <div class="row mt-3 mb-3 d-flex flex-row footer">
+                <div class="col">
+                  <button type="submit" class="btn btn-primary w-100" @click="onValidate">Validate</button>
+                </div>
+                <div class="col">
+                  <button type="submit" class="btn btn-success w-100" @click="onSend"
+                    :disabled="store.state.message.status != MessageStatus.VALID">Send</button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="tab-pane fade h-100" id="consumer-tab-pane" role="tabpanel" aria-labelledby="consumer-tab"
+            tabindex="0">
+            <div class="d-flex flex-column h-100">
+              <div class="row not-grow">
+                <div class="col">
+                  <div class="accordion not-grow mt-2" id="consumer-configurations">
+                    <div class="accordion-item">
+                      <h2 class="accordion-header">
+                        <button class="accordion-button secondary" type="button" data-bs-toggle="collapse"
+                          data-bs-target="#topic-configuration" aria-expanded="true" aria-controls="collapseOne">
+                          Topic Configuration
+                        </button>
+                      </h2>
+                      <div id="topic-configuration" class="accordion-collapse collapse show">
+                        <div class="accordion-body">
+                          <Topic class="not-grow" />
+                        </div>
+                      </div>
+                    </div>
+                    <div class="accordion-item">
+                      <h2 class="accordion-header">
+                        <button class="accordion-button" type="button" data-bs-toggle="collapse"
+                          data-bs-target="#consumer-configuration">
+                          Consumer Configuration
+                        </button>
+                      </h2>
+                      <div id="consumer-configuration" class="accordion-collapse collapse">
+                        <div class="accordion-body">
+                          <Consumer class="not-grow" />
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
-          </div>
-        </div>
-        <div class="card mt-2 not-grow">
-          <div class="card-header">
-            Topic
-          </div>
-          <div class="card-body">
-            <div class="row">
-              <div class="col">
-                <div class="form-check form-check-inline">
-                  <input class="form-check-input" type="radio" v-model="state.topicType" id="topic-manual" value="manual">
-                  <label class="form-check-label" for="topic-manual">Manual</label>
+              <div class="row not-grow mt-2 mb-2">
+                <div class="col">
+                  <button type="submit" class="btn btn-success w-100" @click="onConsume" :disabled="consumeDisabled">
+                    <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true" v-if="showSpinner" />
+                    <span class="visually-hidden">Consume</span>
+                    Consume
+                  </button>
                 </div>
-                <div class="form-check form-check-inline">
-                  <input class="form-check-input" type="radio" v-model="state.topicType" id="topic-list" value="list">
-                  <label class="form-check-label" for="topic-list">List</label>
+                <div class="col">
+                  <button type="submit" class="btn btn-danger w-100" :disabled="stopDisabled" @click="onStop">
+                    Stop
+                  </button>
                 </div>
               </div>
-            </div>
-            <div class="row mt-1" v-if="state.topicType == 'list'">
-              <div class="col-10">
-                <div class="form-floating">
-                  <select class="form-select" id="topic-list" aria-label="Topics" ref="topicsEl" :disabled="topicOptions.length == 0" placeholder="topic_1">
-                    <option v-for="option in topicOptions" :value="option.value">{{ option.label }}</option>
-                  </select>
-                  <label for="topic-list" class="ms-2">Topic</label>
-                </div>
-              </div>
-              <div class="col-2">
-                <button type="submit" class="btn btn-primary w-100 h-100" @click="onSyncTopics">Sync</button>
-              </div>
-            </div>
-            <div class="row mt-1" v-else-if="state.topicType == 'manual'">
-              <div class="form-floating">
-                <input type="text" class="form-control" placeholder="new_topic"
-                  id="topic-manual" ref="topicEl" value="new_topic">
-                <label for="topic-manual" class="ms-2">Topic</label>
-              </div>
-            </div>
-          </div>
-        </div>
-        <div class="card mt-2 grow">
-          <div class="card-header">
-            Message
-          </div>
-          <div class="card-body d-flex flex-column">
-            <div class="row mb-3 flex-grow-1">
-              <div class="col">
-                <JsonEditorVue v-model="state.payload" style="height: 100%" />
-              </div>
-            </div>
-            <div class="row flex-grow-0">
-              <div class="col">
-                <label class="col-sm-2 col-form-label">Status</label>
-                <span v-if="state.payloadStatus == PayloadStatus.UNKNOWN">
-                  <span class="badge text-bg-secondary">NOT VALIDATED</span>
-                </span>
-                <span v-else-if="state.payloadStatus == PayloadStatus.VALID">
-                  <span class="badge text-bg-success">VALID</span>
-                </span>
-                <span v-else>
-                  <span class="badge text-bg-danger">INVALID</span>
-                </span>
-              </div>
-            </div>
-          </div>
-        </div>
-        <div class="row mt-3 mb-3 d-flex flex-row footer">
-          <div class="col">
-            <button type="submit" class="btn btn-primary w-100" @click="onValidate">Validate</button>
-          </div>
-          <div class="col">
-            <button type="submit" class="btn btn-success w-100" @click="onSend"
-              :disabled="state.payloadStatus != PayloadStatus.VALID">Send</button>
-          </div>
-        </div>
-        <div class="row">
-          <!-- Modal -->
-          <div class="modal fade" id="modal-1" tabindex="-1">
-            <div class="modal-dialog">
-              <div class="modal-content">
-                <div class="modal-header">
-                  <h1 class="modal-title fs-5">{{ state.modal.title }}</h1>
-                  <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                </div>
-                <div class="modal-body">
-                  {{ state.modal.content }}
-                </div>
-                <div class="modal-footer">
-                  <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-                </div>
-              </div>
-            </div>
-          </div>
-          <div class="modal fade" id="modal-schema" tabindex="-1">
-            <div class="modal-dialog" modal-xl>
-              <div class="modal-content">
-                <div class="modal-header">
-                  <h1 class="modal-title fs-5">Schema</h1>
-                  <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                </div>
-                <div class="modal-body">
-                  <JsonEditorVue v-model="state.schema" style="height: 100%" :read-only="true" />
-                </div>
-                <div class="modal-footer">
-                  <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+              <div class="row grow mt-3 mb-2 h-100">
+                <div class="col">
+                  <Feed />
                 </div>
               </div>
             </div>
@@ -304,18 +239,26 @@ const onValidate = async () => {
         </div>
       </div>
     </div>
+    <Modal title="Show Schema" :show="showSchemaModal" @hide="showSchemaModal = false">
+      <Json :content="store.state.schema" :read-only="true" class="h-100" />
+    </Modal>
+    <Modal />
   </div>
 </template>
 
 <style lang="less">
-@import 'vue-json-pretty/lib/styles.css';
 @import 'bootstrap/dist/css/bootstrap.min.css';
+@import 'vue-json-pretty/lib/styles.css';
 
 body,
 html {
   height: 100%;
   margin: 0;
   overflow: hidden;
+}
+
+.scroll {
+  overflow-y: scroll;
 }
 
 .not-grow {
@@ -332,5 +275,16 @@ html {
 
 .form-floating::before {
   width: 0 !important
+}
+
+.accordion-button,
+.accordion-button:not(.collapsed) {
+  background-color: rgba(33, 37, 41, 0.03);
+}
+
+.nav-tabs .nav-item.show .nav-link,
+.nav-tabs .nav-link.active {
+  background-color: #0d6efd !important;
+  color: white;
 }
 </style>

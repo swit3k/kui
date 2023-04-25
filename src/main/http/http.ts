@@ -13,15 +13,18 @@ export const http = (config: HttpConfig): Promise<any> => {
       method: config.method || 'GET'
     })
 
+    let data: Buffer | null = null
     request.on('response', response => {
-      //console.log(`HEADERS: ${JSON.stringify(response.headers)}`);
       response.on('error', reject)
       response.on('aborted', reject)
+      response.on('end', () => {
+        if (data) resolve(data.toString())
+        else resolve({})
+      })
 
-      response.on('data', data => {
-        // console.log(`Url received: ${url}`)
-
-        resolve(data.toString())
+      response.on('data', chunk => {
+        if (!data) data = Buffer.from(chunk)
+        else data = Buffer.concat([ data, chunk ])
       })
     })
     .on('error', reject)

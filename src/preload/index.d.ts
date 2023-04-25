@@ -1,23 +1,20 @@
 import { ElectronAPI } from '@electron-toolkit/preload'
-
-interface MessagePayload {
-  brokersUrl: string,
-  schemaRegistryUrl: string,
-  schemaId: number,
-  topic: string,
-  message: string
-}
+import { ConsumeRequestPayload, StopConsumingPayload } from '../shared/types';
 
 declare global {
   interface Window {
     electron: ElectronAPI
     api: {
-      fetchSchemaRegistry: (schemRegistryUrl: string) => Promise<any>,
-      fetchSchema: (schemRegistryUrl: string, schemaId: number) => Promise<any>,
-      fetchLatestSchemaId: (schemRegistryUrl: string, subject: string) => Promise<number>,
+      fetchSchemaRegistry: (schemaRegistryUrl: string) => Promise<any>,
+      fetchSchema: (schemaRegistryUrl: string, schemaId: number) => Promise<any>,
+      fetchLatestSchemaId: (schemaRegistryUrl: string, subject: string) => Promise<number>,
       sendMessage: (messagePayload: MessagePayload) => Promise<any>,
-      validateMessage: (schemRegistryUrl: string, schemaId: number, message: string) => Promise<boolean>,
-      listTopics: (schemRegistryUrl: string) => Promise<any>,
+      validateMessage: (schemaRegistryUrl: string, schemaId: number, message: string) => Promise<boolean>,
+      listTopics: (schemaRegistryUrl: string) => Promise<any>,
+      sendConsumeMessageRequest: (payload: ConsumeRequestPayload) => Promise<any>,
+      sendStopConsumingRequest: (payload: StopConsumingPayload) => Promise<any>,
+      onIncomingMessage: (callback: (event: IpcRendererEvent, ...args: any[]) => void) => void
+      onLastMessageMarker: (callback: (event: IpcRendererEvent, ...args: any[]) => void) => void
     }
   }
 }

@@ -1,26 +1,92 @@
-import { IpcMainInvokeEvent } from 'electron';
+import { BrowserWindow, IpcMainInvokeEvent } from 'electron';
 
 import { SchemaRegistry } from '@kafkajs/confluent-schema-registry';
-import { Kafka } from 'kafkajs';
 
-interface MessagePayload {
-  brokersUrl: string,
+import { CHANNELS } from '../../shared/channels'
+import { ConsumeRequestPayload, OutgoingMessagePayload } from '../../shared/types';
+import { finalize, take } from 'rxjs';
+import { KafkaConsumer } from '../kafka/kafka-consumer';
+import { Kafka, logLevel } from 'kafkajs';
+
+export interface KafkaConsumerConfig {
   schemaRegistryUrl: string,
-  schemaId: number,
   topic: string,
-  message: string
+  limit: number,
+  type: string
 }
 
-export const KafkaHandlers = {
-  sendMessage: {
-    channel: "kafka:sendMessage",
-    handle: async (_event: IpcMainInvokeEvent, messagePayload: MessagePayload) => {
+class State {
+  public consumer: KafkaConsumer | null = null
+}
 
-      console.log(`Received: ${messagePayload}`)
+const state = new State()
+
+export const KafkaHandlers = (mainWindow: BrowserWindow) => {
+  const clientId = `kui-client-`
+
+  const closeConsumer = async () => {
+    const run = async () => {
+      state.consumer!!.disconnect()
+      console.log(`Consumer closed`)
+    }
+
+    run()
+      .then(() => {
+        mainWindow.webContents.send(CHANNELS.KAFKA.LAST_MESSAGE_MARKER, { topic: state.consumer?.getTopic() })
+      })
+      .catch(async e => { console.error(e) })
+      .finally(() => { state.consumer = null })
+  }
+
+  const sendLastMessageMarker = () => {
+    console.log(`Sending last message marker`)
+    closeConsumer().then(() =>
+      mainWindow.webContents.send(CHANNELS.KAFKA.LAST_MESSAGE_MARKER, { topic: state.consumer?.getTopic() })
+    )
+  }
+
+  const onStopConsumingRequest = {
+    channel: CHANNELS.KAFKA.STOP_CONSUMING,
+    listener: (_event: IpcMainInvokeEvent) => {
+      console.log(`Received stop request`)
+      closeConsumer()
+    }
+  }
+
+  const onConsumeMessageRequest = {
+    channel: CHANNELS.KAFKA.CONSUME_REQUEST,
+    listener: (_event: IpcMainInvokeEvent, consumePayload: ConsumeRequestPayload) => {
+      const registry = new SchemaRegistry({ host: consumePayload.schemaRegistryUrl })
+      const kafka = new Kafka({
+        logLevel: logLevel.INFO,
+        brokers: consumePayload.brokersUrl.split(','),
+        clientId
+      })
+
+      state.consumer = new KafkaConsumer(kafka, registry)
+      state.consumer
+        .startConsumer({ ...consumePayload })
+        .then(observable => {
+          observable
+            .pipe(
+              take(consumePayload.limit),
+              finalize(() => sendLastMessageMarker())
+            )
+            .subscribe(message => {
+              mainWindow.webContents.send(CHANNELS.KAFKA.INCOMING_MESSAGE, message)
+            })
+        })
+        .catch(e => console.error(`Error: ${e.message}`, e))
+    }
+  }
+
+  const sendMessage = {
+    channel: CHANNELS.KAFKA.SEND_REQUEST,
+    handle: async (_event: IpcMainInvokeEvent, messagePayload: OutgoingMessagePayload) => {
 
       const kafka = new Kafka({
         brokers: messagePayload.brokersUrl.split(','),
-        clientId: 'kui-consumer',
+        clientId,
       })
 
       const registry = new SchemaRegistry({ host: messagePayload.schemaRegistryUrl })
@@ -33,7 +99,7 @@ export const KafkaHandlers = {
         await producer.connect()
         await producer.send({
           topic: messagePayload.topic,
-          messages: [ outgoingMessage ]
+          messages: [outgoingMessage]
         })
       }
 
@@ -42,13 +108,14 @@ export const KafkaHandlers = {
         producer && await producer.disconnect()
       })
     }
-  },
-  listTopics: {
-    channel: "kafka:listTopics",
+  }
+
+  const listTopics = {
+    channel: CHANNELS.KAFKA.LIST_TOPICS,
     handle: async (_event: IpcMainInvokeEvent, brokersUrl: string) => {
       const admin = new Kafka({
         brokers: brokersUrl.split(','),
-        clientId: 'kui-consumer',
+        clientId,
       }).admin()
 
       const run = async () => {
@@ -61,5 +128,12 @@ export const KafkaHandlers = {
         admin && admin.disconnect()
       })
     }
+  }
+
+  return {
+    onConsumeMessageRequest,
+    onStopConsumingRequest,
+    sendMessage,
+    listTopics
   }
 }
